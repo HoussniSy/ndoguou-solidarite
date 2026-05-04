@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Administration — NDOGUOU SOLIDARITÉ</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" href="assets/images/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="index.css" />
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <!-- LOGIN -->
+  <div class="admin-login" id="loginScreen">
+    <div class="login-card">
+      <img src="assets/images/logo.png" alt="Logo" class="login-logo" />
+      <h1>Espace Administration</h1>
+      <p>NDOGUOU SOLIDARITÉ</p>
+      <form id="loginForm">
+        <div class="form-group"><label for="adminUser">Nom d'utilisateur</label><input type="text" id="adminUser" placeholder="admin1 ou admin2" required /></div>
+        <div class="form-group"><label for="adminPass">Mot de passe</label><div class="pass-wrapper"><input type="password" id="adminPass" placeholder="Mot de passe" required /><button type="button" class="pass-toggle" onclick="togglePass('adminPass', this)">👁️</button></div></div>
+        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Se connecter →</button>
+      </form>
+      <a href="index.html" class="back-link">← Retour au site</a>
+    </div>
+  </div>
+
+  <!-- ADMIN PANEL -->
+  <div class="admin-panel" id="adminPanel" style="display:none;">
+    <aside class="admin-sidebar">
+      <div class="sidebar-brand"><img src="assets/images/logo.png" alt="Logo" /><span>Admin Panel</span></div>
+      <nav class="sidebar-nav">
+        <a href="#" class="sidebar-link active" data-tab="dashboard">📊 Tableau de bord</a>
+        <a href="#" class="sidebar-link" data-tab="content">✏️ Contenu</a>
+        <a href="#" class="sidebar-link" data-tab="gallery">🖼️ Galerie</a>
+        <a href="#" class="sidebar-link" data-tab="adhesions">📝 Adhésions</a>
+        <a href="#" class="sidebar-link" data-tab="messages">✉️ Messages</a>
+        <a href="#" class="sidebar-link" data-tab="settings">⚙️ Paramètres</a>
+      </nav>
+      <div class="sidebar-footer"><a href="index.html">← Retour au site</a><button class="btn-logout" id="logoutBtn">Déconnexion</button></div>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-header"><h2 id="pageTitle">Tableau de bord</h2><div class="admin-user"><span>Admin</span><div class="avatar">A</div></div></header>
+
+      <!-- Dashboard -->
+      <div class="admin-tab active" id="tab-dashboard">
+        <div class="stats-grid">
+          <div class="stat-card stat-red"><div class="stat-icon">📝</div><div><span class="stat-number" id="statAdhesions">0</span><span class="stat-label">Adhésions</span></div></div>
+          <div class="stat-card stat-brown"><div class="stat-icon">⏳</div><div><span class="stat-number" id="statPending">0</span><span class="stat-label">En attente</span></div></div>
+          <div class="stat-card stat-green"><div class="stat-icon">✉️</div><div><span class="stat-number" id="statMessages">0</span><span class="stat-label">Messages</span></div></div>
+          <div class="stat-card stat-blue"><div class="stat-icon">🔔</div><div><span class="stat-number" id="statUnread">0</span><span class="stat-label">Non lus</span></div></div>
+        </div>
+        <div class="dashboard-grid">
+          <div class="dash-card"><h3>📝 Dernières adhésions</h3><div id="recentAdhesions" class="recent-list"></div></div>
+          <div class="dash-card"><h3>✉️ Derniers messages</h3><div id="recentMessages" class="recent-list"></div></div>
+        </div>
+      </div>
+
+      <!-- CMS Content -->
+      <div class="admin-tab" id="tab-content">
+        <div class="tab-actions"><h3>✏️ Modifier le contenu</h3></div>
+        <div id="cmsEditor" class="cms-editor"></div>
+      </div>
+
+      <!-- Gallery -->
+      <div class="admin-tab" id="tab-gallery">
+        <div class="tab-actions"><h3>🖼️ Gestion de la galerie</h3></div>
+        <div class="gallery-upload-admin" id="adminGalleryUpload">
+          <div class="upload-icon">📸</div>
+          <p><strong>Ajouter des photos à la galerie</strong></p>
+          <p>Glissez vos images ici ou cliquez pour sélectionner</p>
+          <input type="file" id="adminGalleryInput" accept="image/*" multiple style="display:none;" />
+        </div>
+        <h4 style="margin:24px 0 12px;color:var(--dark);">Images ajoutées par l'admin</h4>
+        <div class="admin-gallery-grid" id="adminGalleryGrid"></div>
+      </div>
+
+      <!-- Adhesions -->
+      <div class="admin-tab" id="tab-adhesions">
+        <div class="tab-actions"><h3>📝 Adhésions (<span id="adhCount">0</span>)</h3><div class="tab-btns"><button class="btn btn-brown" onclick="DB.exportJSON('adhesions')">📥 JSON</button><button class="btn btn-primary" onclick="exportCSV('adhesions')">📥 CSV</button></div></div>
+        <div class="filter-bar"><select id="adhFilter" onchange="renderAdhesions()"><option value="all">Tous</option><option value="En attente">En attente</option><option value="Approuvé">Approuvé</option><option value="Refusé">Refusé</option></select><input type="text" id="adhSearch" placeholder="🔍 Rechercher..." oninput="renderAdhesions()" /></div>
+        <div class="data-table-wrapper"><table class="data-table"><thead><tr><th>Date</th><th>Nom</th><th>Prénom</th><th>Email</th><th>Tél</th><th>Type</th><th>Statut</th><th>Actions</th></tr></thead><tbody id="adhBody"></tbody></table></div>
+        <div class="empty-state" id="adhEmpty" style="display:none;"><div class="empty-icon">📭</div><p>Aucune demande</p></div>
+      </div>
+
+      <!-- Messages -->
+      <div class="admin-tab" id="tab-messages">
+        <div class="tab-actions"><h3>✉️ Messages (<span id="msgCount">0</span>)</h3><div class="tab-btns"><button class="btn btn-brown" onclick="DB.exportJSON('messages')">📥 JSON</button><button class="btn btn-primary" onclick="exportCSV('messages')">📥 CSV</button></div></div>
+        <div class="filter-bar"><select id="msgFilter" onchange="renderMessages()"><option value="all">Tous</option><option value="unread">Non lus</option><option value="read">Lus</option></select><input type="text" id="msgSearch" placeholder="🔍 Rechercher..." oninput="renderMessages()" /></div>
+        <div id="messagesList" class="messages-list"></div>
+        <div class="empty-state" id="msgEmpty" style="display:none;"><div class="empty-icon">📭</div><p>Aucun message</p></div>
+      </div>
+
+      <!-- Settings -->
+      <div class="admin-tab" id="tab-settings">
+        <div class="tab-actions"><h3>⚙️ Paramètres</h3></div>
+        <div class="settings-card" style="max-width:700px;">
+          <h3>👥 Comptes administrateurs</h3>
+          <div id="adminAccountsList"></div>
+        </div>
+        <div class="settings-card" style="max-width:700px;margin-top:24px;">
+          <h3>🗑️ Gestion des données</h3>
+          <div class="setting-row" style="margin-top:16px;">
+            <button class="btn btn-brown" onclick="if(confirm('Supprimer adhésions ?')){localStorage.removeItem('ndoguou_adhesions');renderAll();showAdminToast('✅ Supprimé');}">Vider adhésions</button>
+            <button class="btn btn-brown" onclick="if(confirm('Supprimer messages ?')){localStorage.removeItem('ndoguou_messages');renderAll();showAdminToast('✅ Supprimé');}">Vider messages</button>
+            <button class="btn btn-brown" onclick="if(confirm('Supprimer images galerie ?')){GalleryStore.clear();renderAdminGallery();showAdminToast('✅ Galerie vidée');}">Vider galerie</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="script.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
