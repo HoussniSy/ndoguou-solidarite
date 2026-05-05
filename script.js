@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const navLinks = document.querySelectorAll('.nav-links a');
   const sections = document.querySelectorAll('section[id]');
   window.addEventListener('scroll', () => {
-    navbar.classList.toggle('scrolled', window.scrollY > 40);
+    if(navbar) navbar.classList.toggle('scrolled', window.scrollY > 40);
     let cur = ''; sections.forEach(s => { if (window.scrollY >= s.offsetTop-120) cur = s.getAttribute('id'); });
     navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#'+cur));
   });
