@@ -74,10 +74,25 @@ const DEFAULT_CONTENT = {
 /* ----- CMS ----- */
 const CMS = {
   _key: 'ndoguou_content',
-  get() { try { return this._merge(DEFAULT_CONTENT, JSON.parse(localStorage.getItem(this._key))||{}); } catch { return {...DEFAULT_CONTENT}; } },
+  get() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(this._key));
+      if (!saved || Object.keys(saved).length === 0) return JSON.parse(JSON.stringify(DEFAULT_CONTENT));
+      // Only fill missing TOP-LEVEL keys from defaults (don't deep-merge arrays)
+      for (const key of Object.keys(DEFAULT_CONTENT)) {
+        if (!(key in saved)) saved[key] = JSON.parse(JSON.stringify(DEFAULT_CONTENT[key]));
+      }
+      // Ensure arrays exist (Firebase drops empty arrays)
+      if (saved.activities && !Array.isArray(saved.activities.cards)) saved.activities.cards = [];
+      if (saved.about && !Array.isArray(saved.about.cards)) saved.about.cards = [];
+      if (!Array.isArray(saved.partners)) saved.partners = [];
+      if (!Array.isArray(saved.press)) saved.press = [];
+      if (saved.adhesion && !Array.isArray(saved.adhesion.benefits)) saved.adhesion.benefits = [];
+      return saved;
+    } catch { return JSON.parse(JSON.stringify(DEFAULT_CONTENT)); }
+  },
   save(data) { localStorage.setItem(this._key, JSON.stringify(data)); },
-  reset() { localStorage.removeItem(this._key); },
-  _merge(d, o) { const r={...d}; for(const k of Object.keys(o)){if(o[k]&&typeof o[k]==='object'&&!Array.isArray(o[k])&&d[k]){r[k]=this._merge(d[k],o[k]);}else{r[k]=o[k];}} return r; }
+  reset() { localStorage.removeItem(this._key); }
 };
 
 /* ----- Gallery Store (admin only) ----- */

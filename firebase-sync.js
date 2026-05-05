@@ -171,16 +171,20 @@ AdminAuth.saveAdmins = function(admins) {
 
 /* ===== INITIAL MIGRATION ===== */
 fbDB.ref('content').once('value').then(snap => {
-  if (!snap.val()) {
+  const data = snap.val();
+  if (!data) {
     console.log('🔄 Migration initiale vers Firebase...');
     const content = CMS.get();
     const cleaned = cleanForFirebase(content);
-    fbDB.ref('content').set(cleaned);
-    
-    const admins = AdminAuth.getAdmins();
-    fbDB.ref('admins').set(admins);
-    
-    console.log('✅ Migration terminée');
+    return fbDB.ref('content').set(cleaned).then(() => {
+      const admins = AdminAuth.getAdmins();
+      return fbDB.ref('admins').set(admins);
+    }).then(() => {
+      console.log('✅ Migration terminée');
+      fbToast('✅ Données synchronisées dans le cloud');
+    });
+  } else {
+    console.log('✅ Firebase connecté — données trouvées');
   }
 }).catch(e => {
   console.error('❌ Firebase non accessible:', e);
