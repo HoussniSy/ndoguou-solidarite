@@ -1,7 +1,4 @@
 /* ===== FIREBASE SYNC — Cloud Database ===== */
-/* Ce fichier synchronise les données entre Firebase et localStorage.
-   Il s'ajoute PAR-DESSUS le système existant (script.js/admin.js).
-   Si Firebase est indisponible, le site fonctionne toujours avec le cache local. */
 
 const firebaseConfig = {
   apiKey: "AIzaSyAY5SK8nnjCmg2DvRIr1n5AysCM4BpgFz0",
@@ -16,258 +13,185 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const fbDB = firebase.database();
-let fbReady = false;
+
+/* Track local saves to prevent Firebase listener from overwriting */
+let lastLocalSave = 0;
+const SAVE_COOLDOWN = 3000; // ms to wait before accepting Firebase updates after a local save
 
 /* ===== IMAGE COMPRESSION ===== */
-function compressImage(base64, maxWidth, quality) {
-  maxWidth = maxWidth || 600;
-  quality = quality || 0.5;
+function compressImg(base64) {
   return new Promise((resolve) => {
     if (!base64 || !base64.startsWith('data:image')) { resolve(base64); return; }
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
       let w = img.width, h = img.height;
-      if (w > maxWidth) { h = (maxWidth / w) * h; w = maxWidth; }
+      if (w > 500) { h = (500 / w) * h; w = 500; }
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', quality));
+      resolve(canvas.toDataURL('image/jpeg', 0.4));
     };
     img.onerror = () => resolve(base64);
     img.src = base64;
   });
 }
 
-/* Helper: strip base64 images from CMS content to reduce size for Firebase */
-function prepareContentForFirebase(data) {
-  const clone = JSON.parse(JSON.stringify(data));
-  // Activity card images: compress if base64
-  if (clone.activities && clone.activities.cards) {
-    clone.activities.cards = clone.activities.cards.map(card => {
-      // Keep non-base64 URLs as-is, skip base64 images (store separately)
-      if (card.img && card.img.startsWith('data:image') && card.img.length > 50000) {
-        // Store a placeholder, actual image goes to separate ref
-        return { ...card, img: card.img.substring(0, 50000) + '...[truncated]' };
-      }
-      return card;
-    });
+/* Remove large base64 images from data for Firebase */
+function cleanForFirebase(data) {
+  const d = JSON.parse(JSON.stringify(data));
+  if (d.activities && d.activities.cards) {
+    d.activities.cards = d.activities.cards.map(c => ({
+      ...c,
+      img: (c.img && c.img.startsWith('data:image')) ? '' : (c.img || '')
+    }));
   }
-  return clone;
+  return d;
+}
+
+/* ===== TOAST helper ===== */
+function fbToast(msg) {
+  if (typeof showAdminToast === 'function') showAdminToast(msg);
+  else {
+    const t = document.getElementById('toast');
+    if (t) { t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
+  }
 }
 
 /* ===== SYNC: Firebase → localStorage → UI ===== */
 
-// Content (CMS)
 fbDB.ref('content').on('value', snap => {
+  // Don't overwrite if we just saved locally
+  if (Date.now() - lastLocalSave < SAVE_COOLDOWN) return;
+  
   const data = snap.val();
   if (data) {
-    // Merge activity images from separate storage if needed
     localStorage.setItem('ndoguou_content', JSON.stringify(data));
     if (typeof applyContent === 'function') applyContent();
-    if (typeof loadCMSEditor === 'function' && document.getElementById('cmsEditor')) loadCMSEditor();
-  }
-  fbReady = true;
-});
-
-// Activity images (stored separately to avoid size issues)
-fbDB.ref('activity_images').on('value', snap => {
-  const imgs = snap.val();
-  if (imgs) {
-    // Merge into CMS content
-    try {
-      const content = JSON.parse(localStorage.getItem('ndoguou_content'));
-      if (content && content.activities && content.activities.cards) {
-        content.activities.cards.forEach((card, i) => {
-          if (imgs[i]) card.img = imgs[i];
-        });
-        localStorage.setItem('ndoguou_content', JSON.stringify(content));
-        if (typeof applyContent === 'function') applyContent();
-      }
-    } catch(e) {}
   }
 });
 
-// Gallery
 fbDB.ref('gallery').on('value', snap => {
+  if (Date.now() - lastLocalSave < SAVE_COOLDOWN) return;
   const data = snap.val();
-  if (data) {
-    localStorage.setItem('ndoguou_gallery', JSON.stringify(data));
+  if (data !== null) {
+    localStorage.setItem('ndoguou_gallery', JSON.stringify(data || []));
     if (typeof window.renderPublicGallery === 'function') window.renderPublicGallery();
     if (typeof renderAdminGallery === 'function') renderAdminGallery();
   }
 });
 
-// Adhesions
 fbDB.ref('adhesions').on('value', snap => {
+  if (Date.now() - lastLocalSave < SAVE_COOLDOWN) return;
   const data = snap.val();
-  if (data) {
-    localStorage.setItem('ndoguou_adhesions', JSON.stringify(data));
+  if (data !== null) {
+    localStorage.setItem('ndoguou_adhesions', JSON.stringify(data || []));
     if (typeof renderAdhesions === 'function') renderAdhesions();
   }
 });
 
-// Messages
 fbDB.ref('messages').on('value', snap => {
+  if (Date.now() - lastLocalSave < SAVE_COOLDOWN) return;
   const data = snap.val();
-  if (data) {
-    localStorage.setItem('ndoguou_messages', JSON.stringify(data));
+  if (data !== null) {
+    localStorage.setItem('ndoguou_messages', JSON.stringify(data || []));
     if (typeof renderMessages === 'function') renderMessages();
   }
 });
 
-// Admins
 fbDB.ref('admins').on('value', snap => {
   const data = snap.val();
-  if (data) {
-    localStorage.setItem('ndoguou_admins', JSON.stringify(data));
-  }
+  if (data) localStorage.setItem('ndoguou_admins', JSON.stringify(data));
 });
 
-/* ===== OVERRIDE: Save → Firebase + localStorage ===== */
+/* ===== OVERRIDE SAVE METHODS ===== */
 
 // CMS Content
 const _cmsSave = CMS.save.bind(CMS);
 CMS.save = function(data) {
+  lastLocalSave = Date.now();
   _cmsSave(data);
-  try {
-    // Save content to Firebase (without large base64 images)
-    const safeData = JSON.parse(JSON.stringify(data));
-    
-    // Extract activity images separately
-    const actImgs = {};
-    if (safeData.activities && safeData.activities.cards) {
-      safeData.activities.cards.forEach((card, i) => {
-        if (card.img && card.img.startsWith('data:image')) {
-          actImgs[i] = card.img;
-          card.img = 'firebase://activity_images/' + i; // placeholder
-        }
-      });
-    }
-    
-    fbDB.ref('content').set(safeData).then(() => {
-      console.log('✅ Contenu sauvegardé dans Firebase');
-    }).catch(e => {
-      console.warn('Firebase CMS save error:', e);
-    });
-    
-    // Save activity images separately
-    if (Object.keys(actImgs).length > 0) {
-      // Compress images before saving
-      Promise.all(
-        Object.entries(actImgs).map(async ([idx, img]) => {
-          const compressed = await compressImage(img, 400, 0.4);
-          return [idx, compressed];
-        })
-      ).then(results => {
-        const compressed = {};
-        results.forEach(([idx, img]) => { compressed[idx] = img; });
-        fbDB.ref('activity_images').set(compressed).catch(e => {
-          console.warn('Firebase activity images error:', e);
-        });
-      });
-    }
-  } catch(e) {
-    console.warn('Firebase save error:', e);
-  }
+  
+  const cleaned = cleanForFirebase(data);
+  fbDB.ref('content').set(cleaned).then(() => {
+    console.log('✅ Firebase: contenu sauvegardé');
+  }).catch(e => {
+    console.error('❌ Firebase save error:', e);
+    fbToast('⚠️ Erreur Firebase: ' + e.message);
+  });
 };
 
 const _cmsReset = CMS.reset.bind(CMS);
 CMS.reset = function() {
+  lastLocalSave = Date.now();
   _cmsReset();
-  fbDB.ref('content').remove().catch(e => console.warn('Firebase reset error:', e));
-  fbDB.ref('activity_images').remove().catch(e => {});
+  fbDB.ref('content').remove().catch(e => console.error('Firebase reset error:', e));
 };
 
-// Gallery Store
+// Gallery
 const _galSave = GalleryStore.save.bind(GalleryStore);
 GalleryStore.save = function(list) {
+  lastLocalSave = Date.now();
   _galSave(list);
-  // Compress gallery images before saving to Firebase
-  Promise.all(list.map(async (item) => {
-    if (item.src && item.src.startsWith('data:image')) {
-      return { ...item, src: await compressImage(item.src, 400, 0.4) };
-    }
-    return item;
-  })).then(compressed => {
-    fbDB.ref('gallery').set(compressed).catch(e => console.warn('Firebase gallery error:', e));
+  
+  // Compress all images before Firebase save
+  Promise.all(list.map(async (item) => ({
+    ...item,
+    src: (item.src && item.src.startsWith('data:image')) ? await compressImg(item.src) : item.src
+  }))).then(compressed => {
+    return fbDB.ref('gallery').set(compressed);
+  }).then(() => {
+    console.log('✅ Firebase: galerie sauvegardée');
+  }).catch(e => {
+    console.error('❌ Firebase gallery error:', e);
+    fbToast('⚠️ Erreur galerie Firebase: ' + e.message);
   });
 };
 
 const _galClear = GalleryStore.clear.bind(GalleryStore);
 GalleryStore.clear = function() {
+  lastLocalSave = Date.now();
   _galClear();
-  fbDB.ref('gallery').remove().catch(e => {});
+  fbDB.ref('gallery').set([]).catch(e => console.error('Firebase gallery clear error:', e));
 };
 
-// DB (Adhesions & Messages) - fix: uses 'ndoguou_' prefix in localStorage
+// DB (Adhesions & Messages)
 const _dbSet = DB._set.bind(DB);
 DB._set = function(key, data) {
+  lastLocalSave = Date.now();
   _dbSet(key, data);
-  // key is already without 'ndoguou_' prefix for Firebase
-  fbDB.ref(key).set(data).catch(e => console.warn('Firebase DB save error:', e));
+  fbDB.ref(key).set(data).catch(e => console.error('Firebase DB error:', e));
 };
 
 // Admin Auth
 const _adminSave = AdminAuth.saveAdmins.bind(AdminAuth);
 AdminAuth.saveAdmins = function(admins) {
   _adminSave(admins);
-  fbDB.ref('admins').set(admins).catch(e => console.warn('Firebase admin save error:', e));
+  fbDB.ref('admins').set(admins).catch(e => console.error('Firebase admin error:', e));
 };
 
 /* ===== INITIAL MIGRATION ===== */
-async function migrateToFirebase() {
-  try {
-    const snap = await fbDB.ref('content').once('value');
-    if (!snap.val()) {
-      console.log('🔄 Migration initiale vers Firebase...');
-      const content = CMS.get();
-      
-      // Separate activity images
-      const actImgs = {};
-      if (content.activities && content.activities.cards) {
-        content.activities.cards.forEach((card, i) => {
-          if (card.img && card.img.startsWith('data:image')) {
-            actImgs[i] = card.img;
-            card.img = 'firebase://activity_images/' + i;
-          }
-        });
-      }
-      
-      await fbDB.ref('content').set(content);
-      if (Object.keys(actImgs).length > 0) {
-        const compressed = {};
-        for (const [idx, img] of Object.entries(actImgs)) {
-          compressed[idx] = await compressImage(img, 400, 0.4);
-        }
-        await fbDB.ref('activity_images').set(compressed);
-      }
-      
-      const gallery = GalleryStore.get();
-      if (gallery.length) {
-        const compGal = await Promise.all(gallery.map(async (item) => {
-          if (item.src && item.src.startsWith('data:image')) {
-            return { ...item, src: await compressImage(item.src, 400, 0.4) };
-          }
-          return item;
-        }));
-        await fbDB.ref('gallery').set(compGal);
-      }
-      
-      const adhesions = JSON.parse(localStorage.getItem('ndoguou_adhesions') || '[]');
-      if (adhesions.length) await fbDB.ref('adhesions').set(adhesions);
-      
-      const messages = JSON.parse(localStorage.getItem('ndoguou_messages') || '[]');
-      if (messages.length) await fbDB.ref('messages').set(messages);
-      
-      const admins = AdminAuth.getAdmins();
-      await fbDB.ref('admins').set(admins);
-      
-      console.log('✅ Migration terminée !');
-    }
-  } catch(e) {
-    console.warn('Migration error:', e);
+fbDB.ref('content').once('value').then(snap => {
+  if (!snap.val()) {
+    console.log('🔄 Migration initiale vers Firebase...');
+    const content = CMS.get();
+    const cleaned = cleanForFirebase(content);
+    fbDB.ref('content').set(cleaned);
+    
+    const admins = AdminAuth.getAdmins();
+    fbDB.ref('admins').set(admins);
+    
+    console.log('✅ Migration terminée');
   }
-}
-migrateToFirebase();
+}).catch(e => {
+  console.error('❌ Firebase non accessible:', e);
+  fbToast('⚠️ Firebase non accessible — mode hors-ligne');
+});
 
-console.log('☁️ Firebase sync activé');
+/* Test connection */
+fbDB.ref('.info/connected').on('value', snap => {
+  if (snap.val()) {
+    console.log('☁️ Firebase connecté');
+  } else {
+    console.warn('⚠️ Firebase déconnecté');
+  }
+});
